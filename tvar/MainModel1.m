@@ -1,4 +1,4 @@
-% Pi + Yields (Parallel Chains, process pool, benchmark, patched)
+% Pi + Yields (Parallel Chains, process pool, benchmark, lean saves)
 clear; clc; close all;
 set(0,'defaultAxesFontName','Times');
 set(0,'DefaultAxesFontSize',15)
@@ -13,12 +13,13 @@ OutputName    = 'OutputModel1';
 FigSubFolder  = 'FiguresModel1';
 if ~exist(FigSubFolder,'dir'); mkdir(FigSubFolder); end
 
-% ------------ parallel controls ------------------------------------------
-Ndraws  = 100000;   % total proposed draws across ALL chains
-NCHAINS = 12;       % number of parallel chains (adjust to cores)
-THIN    = 10;       % keep every THIN-th draw per chain
-Nbench  = 1000;     % draws per chain for pre-run benchmark
-% --------------------------------------------------------------------------
+% ------------ controls ----------------------------------------------------
+Ndraws     = 100000;   % total draws across ALL chains
+NCHAINS    = 12;       % # parallel chains (match cores)
+THIN       = 10;       % keep every THIN-th draw
+Nbench     = 1000;     % per-chain benchmark draws
+SAVE_LEVEL = 'lite';   % 'lite' or 'full'
+% -------------------------------------------------------------------------
 
 if RunEstimation
     % ======== Load & prep data ONCE on client =============================
@@ -62,7 +63,7 @@ if RunEstimation
 
     b0     = zeros(n*p,n);  b0(1:n,1:n) = 0;
     df0tr  = 100;
-    SC0tr  = ([2 1 1]).^2/400;      % trend shock variances
+    SC0tr  = ([2 1 1]).^2/400;  % trend shock variances
     S0tr   = [2; 0.5; 1];
     P0tr   = eye(3);
     Psi    = [2 1 1 .5 1];
@@ -89,11 +90,11 @@ if RunEstimation
     shared = struct('y',y,'Y',Y,'Time',Time,'Mnem',{Mnem}, ...
         'Ctr',Ctr,'r',r,'n',n,'p',p,'rn',rn,'b0',b0,'df0tr',df0tr, ...
         'SC0tr',SC0tr,'S0tr',S0tr,'P0tr',P0tr,'Psi',Psi, ...
-        'C',C,'A',A,'R',R,'Q',Q,'S0',S0,'P0',P0);
+        'C',C,'A',A,'R',R,'Q',Q,'S0',S0,'P0',P0,'SAVE_LEVEL',SAVE_LEVEL);
 
     % ======== launch PROCESS pool (not threads) ==========================
-    p = gcp('nocreate');
-    if ~isempty(p), delete(p); end
+    ppool = gcp('nocreate');
+    if ~isempty(ppool), delete(ppool); end
     parpool('local',NCHAINS);
 
     Sconst = parallel.pool.Constant(shared);  % broadcast once
@@ -102,28 +103,32 @@ if RunEstimation
     draws_per_chain = floor(Ndraws / NCHAINS);
     rng('shuffle'); seeds = randi([1 2^31-2], NCHAINS, 1);
 
-    % ======== Benchmark (same as before) =================================
+    % ======== Benchmark ===================================================
     bench_times = zeros(NCHAINS,1);
     parfor c = 1:NCHAINS
         rng(seeds(c),'combRecursive');
         yB = Sconst.Value.y; Cb = Sconst.Value.C; Rb = Sconst.Value.R;
         Ab = Sconst.Value.A; Qb = Sconst.Value.Q; S0b = Sconst.Value.S0; P0b = Sconst.Value.P0;
         r  = Sconst.Value.r; n  = Sconst.Value.n; p  = Sconst.Value.p;
-        b0 = Sconst.Value.b0; df0tr = Sconst.Value.df0tr; SC0tr = Sconst.Value.SC0tr;
+        b0 = Sconst.Value.b0; df0tr = Sconst.Value.df0tr; SC0tr = Sconst.Value.SC0tr; Psi = Sconst.Value.Psi;
+
         t0 = tic;
         for jm = 1:Nbench
             kf = KF(yB,Cb,Rb,Ab,Qb,S0b,P0b);
             kc = KC(kf);
+
             Ycyc = kc.S(:,r+1:r+n);
             for jp=1:p
                 Ycyc = [kc.S0(r+(jp-1)*n+1:r+n*jp)'; Ycyc];
             end
-            [beta,sigma] = BVAR(Ycyc,p,b0,Sconst.Value.Psi,.2,1);
+            [beta,sigma] = BVAR(Ycyc,p,b0,Psi,.2,1);
             Ab(r+1:r+n,r+1:end) = beta';
             Qb(r+1:r+n,r+1:r+n) = sigma;
+
             Ytr  = [kc.S0(1:r)'; kc.S(:,1:r)];
             SCtr = CovarianceDraw(diff(Ytr), df0tr, diag(SC0tr));
             Qb(1:r,1:r) = SCtr;
+
             Ac = Ab(r+1:end, r+1:end);
             Qc = Qb(r+1:end, r+1:end);
             try
@@ -166,38 +171,55 @@ if RunEstimation
 
     % ======== combine chains =============================================
     CommonTrends = []; Trends = []; TrendsReal = []; Cycles = [];
-    AA = []; QQ = []; CC = []; RR = []; LogLik = []; SS0 = []; P_acc = [];
+    % Heavy arrays are OPTIONAL in 'full' mode:
+    if strcmpi(SAVE_LEVEL,'full')
+        AA = []; QQ = []; CC = []; RR = []; LogLik = []; SS0 = []; P_acc = [];
+    end
+
     for c = 1:NCHAINS
         S = load(out_files(c));
         CommonTrends = cat(3, CommonTrends, S.CommonTrends);
         Trends       = cat(3, Trends,       S.Trends);
         TrendsReal   = cat(3, TrendsReal,   S.TrendsReal);
         Cycles       = cat(3, Cycles,       S.Cycles);
-        AA           = cat(3, AA,           S.AA);
-        QQ           = cat(3, QQ,           S.QQ);
-        CC           = cat(3, CC,           S.CC);
-        RR           = cat(3, RR,           S.RR);
-        LogLik       = cat(2, LogLik,       S.LogLik);
-        SS0          = cat(2, SS0,          S.SS0);
-        P_acc        = [P_acc, S.P_acc]; %#ok<AGROW>
+        if strcmpi(SAVE_LEVEL,'full')
+            if isfield(S,'AA'),   AA   = cat(3, AA,   S.AA);   end
+            if isfield(S,'QQ'),   QQ   = cat(3, QQ,   S.QQ);   end
+            if isfield(S,'CC'),   CC   = cat(3, CC,   S.CC);   end
+            if isfield(S,'RR'),   RR   = cat(3, RR,   S.RR);   end
+            if isfield(S,'LogLik'),LogLik=cat(2, LogLik, S.LogLik); end
+            if isfield(S,'SS0'),  SS0  = cat(2, SS0,  S.SS0);  end
+            if isfield(S,'P_acc'),P_acc= [exist('P_acc','var')*P_acc, S.P_acc]; end %#ok<AGROW>
+        end
     end
 
-    Mkeep   = size(AA,3);
+    Mkeep   = size(CommonTrends,3);
     Discard = ceil(Mkeep/2);
     CommonTrends = CommonTrends(:,:,Discard+1:end);
     Trends       = Trends(:,:,Discard+1:end);
     TrendsReal   = TrendsReal(:,:,Discard+1:end);
     Cycles       = Cycles(:,:,Discard+1:end);
-    AA           = AA(:,:,Discard+1:end);
-    QQ           = QQ(:,:,Discard+1:end);
-    CC           = CC(:,:,Discard+1:end);
-    RR           = RR(:,:,Discard+1:end);
-    LogLik       = LogLik(:,Discard+1:end);
-    SS0          = SS0(:,Discard+1:end);
 
-    save(OutputName,'CommonTrends','Trends','TrendsReal','Cycles','AA','QQ','CC','RR', ...
-        'LogLik','SS0','P_acc','Ndraws','Discard','SC0tr','S0tr','P0tr','df0tr','Psi', ...
-        'Time','Y','y','Mnem','NCHAINS','THIN','draws_per_chain','Nbench','bench_times')
+    if strcmpi(SAVE_LEVEL,'full')
+        if exist('AA','var'), AA = AA(:,:,Discard+1:end); end
+        if exist('QQ','var'), QQ = QQ(:,:,Discard+1:end); end
+        if exist('CC','var'), CC = CC(:,:,Discard+1:end); end
+        if exist('RR','var'), RR = RR(:,:,Discard+1:end); end
+        if exist('LogLik','var'), LogLik = LogLik(:,Discard+1:end); end
+        if exist('SS0','var'), SS0 = SS0(:,Discard+1:end); end
+    end
+
+    % ---- final save (lean by default) -----------------------------------
+    if strcmpi(SAVE_LEVEL,'lite')
+        save(OutputName,'CommonTrends','Trends','TrendsReal','Cycles', ...
+            'Ndraws','Discard','SC0tr','S0tr','P0tr','df0tr','Psi', ...
+            'Time','Y','y','Mnem','NCHAINS','THIN','draws_per_chain','Nbench','bench_times','-v7.3');
+    else
+        save(OutputName,'CommonTrends','Trends','TrendsReal','Cycles', ...
+            'AA','QQ','CC','RR','LogLik','SS0','P_acc', ...
+            'Ndraws','Discard','SC0tr','S0tr','P0tr','df0tr','Psi', ...
+            'Time','Y','y','Mnem','NCHAINS','THIN','draws_per_chain','Nbench','bench_times','-v7.3');
+    end
 
 else
     load(OutputName)
@@ -210,21 +232,19 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
     y=S.y; C=S.C; A=S.A; R=S.R; Q=S.Q; S0=S.S0; P0=S.P0;
     r=S.r; n=S.n; p=S.p; rn=S.rn; b0=S.b0; df0tr=S.df0tr;
     SC0tr=S.SC0tr; Psi=S.Psi; Y=S.Y; Time=S.Time; Mnem=S.Mnem;
-    % >>> Patch: bring these into scope so save() works
-    S0tr = S.S0tr;
-    P0tr = S.P0tr;
+    S0tr = S.S0tr; P0tr = S.P0tr;
+    SAVE_LEVEL = S.SAVE_LEVEL;
 
     Nkeep = floor(Ndraws/THIN);
     States     = nan(size(y,1), rn, Nkeep);
     Trends     = nan(size(y,1), n , Nkeep);
     TrendsReal = nan(size(y,1), n , Nkeep);
-    LogLik     = nan(1, Nkeep);
-    SS0        = nan(r, Nkeep);
-    AA         = nan(rn, rn, Nkeep);
-    QQ         = nan(rn, rn, Nkeep);
-    CC         = nan(n , rn, Nkeep);
-    RR         = nan(n , n , Nkeep);
-    P_acc      = nan(1, Ndraws);
+    if strcmpi(SAVE_LEVEL,'full')
+        LogLik = nan(1, Nkeep); SS0 = nan(r, Nkeep);
+        AA = nan(rn, rn, Nkeep); QQ = nan(rn, rn, Nkeep);
+        CC = nan(n , rn, Nkeep); RR = nan(n , n , Nkeep);
+        P_acc = nan(1, Ndraws);
+    end
 
     notrend = find(SC0tr < 1e-6);
     keep_idx = 0;
@@ -234,7 +254,7 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
         kf = KF(y,C,R,A,Q,S0,P0);
         loglik = kf.LogLik;
 
-        if ~isempty(notrend)
+        if strcmpi(SAVE_LEVEL,'full') && ~isempty(notrend)
             S0_new = S0;
             S0_new(notrend) = S0(notrend) + randn(numel(notrend),1);
             kf_new = KF(y,C,R,A,Q,S0_new,P0);
@@ -275,12 +295,14 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
             States(:,:,keep_idx)     = kc.S;
             Trends(:,:,keep_idx)     = kc.S(:,1:r)*C(:,1:r)';
             TrendsReal(:,:,keep_idx) = kc.S(:,2:r)*C(:,2:r)';
-            LogLik(keep_idx) = loglik;
-            SS0(:,keep_idx)  = S0(1:r);
-            AA(:,:,keep_idx) = A;
-            QQ(:,:,keep_idx) = Q;
-            CC(:,:,keep_idx) = C;
-            RR(:,:,keep_idx) = R;
+            if strcmpi(SAVE_LEVEL,'full')
+                LogLik(keep_idx) = loglik;
+                SS0(:,keep_idx)  = S0(1:r);
+                AA(:,:,keep_idx) = A;
+                QQ(:,:,keep_idx) = Q;
+                CC(:,:,keep_idx) = C;
+                RR(:,:,keep_idx) = R;
+            end
         end
 
         if mod(jm,1000)==0
@@ -289,22 +311,31 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
         end
     end
 
+    % trim tails if partial
     if keep_idx < Nkeep
         States(:,:,keep_idx+1:end) = [];
         Trends(:,:,keep_idx+1:end) = [];
         TrendsReal(:,:,keep_idx+1:end) = [];
-        LogLik(:,keep_idx+1:end) = [];
-        SS0(:,keep_idx+1:end) = [];
-        AA(:,:,keep_idx+1:end) = [];
-        QQ(:,:,keep_idx+1:end) = [];
-        CC(:,:,keep_idx+1:end) = [];
-        RR(:,:,keep_idx+1:end) = [];
+        if strcmpi(SAVE_LEVEL,'full')
+            LogLik(:,keep_idx+1:end) = [];
+            SS0(:,keep_idx+1:end) = [];
+            AA(:,:,keep_idx+1:end) = [];
+            QQ(:,:,keep_idx+1:end) = [];
+            CC(:,:,keep_idx+1:end) = [];
+            RR(:,:,keep_idx+1:end) = [];
+        end
     end
 
     CommonTrends = States(:,1:r,:);
     Cycles       = States(:,r+1:r+n,:);
 
-    save(out_file,'CommonTrends','Trends','TrendsReal','Cycles', ...
-        'AA','QQ','CC','RR','LogLik','SS0','P_acc', ...
-        'SC0tr','S0tr','P0tr','df0tr','Psi','Time','Y','y','Mnem','THIN','Ndraws')
+    % ---- per-chain save (lean by default) --------------------------------
+    if strcmpi(SAVE_LEVEL,'lite')
+        save(out_file,'CommonTrends','Trends','TrendsReal','Cycles', ...
+            'SC0tr','S0tr','P0tr','df0tr','Psi','Time','Y','y','Mnem','THIN','Ndraws','-v7.3');
+    else
+        save(out_file,'CommonTrends','Trends','TrendsReal','Cycles', ...
+            'AA','QQ','CC','RR','LogLik','SS0','P_acc', ...
+            'SC0tr','S0tr','P0tr','df0tr','Psi','Time','Y','y','Mnem','THIN','Ndraws','-v7.3');
+    end
 end
