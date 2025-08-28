@@ -1,4 +1,4 @@
-% Pi + Yields (Parallel Chains, with Benchmark)
+% Pi + Yields (Parallel Chains, process pool, benchmark, patched)
 clear; clc; close all;
 set(0,'defaultAxesFontName','Times');
 set(0,'DefaultAxesFontSize',15)
@@ -6,7 +6,7 @@ set(0,'defaultAxesLineStyleOrder','-|--|:', 'defaultLineLineWidth',1.5)
 setappdata(0,'defaultAxesXTickFontSize',1)
 setappdata(0,'defaultAxesYTickFontSize',1)
 
-addpath('Routines');                 % add path BEFORE starting any pool
+addpath('Routines');                 % make sure Routines is visible
 
 RunEstimation = 1;
 OutputName    = 'OutputModel1';
@@ -15,7 +15,7 @@ if ~exist(FigSubFolder,'dir'); mkdir(FigSubFolder); end
 
 % ------------ parallel controls ------------------------------------------
 Ndraws  = 100000;   % total proposed draws across ALL chains
-NCHAINS = 12;        % number of parallel chains
+NCHAINS = 12;       % number of parallel chains (adjust to cores)
 THIN    = 10;       % keep every THIN-th draw per chain
 Nbench  = 1000;     % draws per chain for pre-run benchmark
 % --------------------------------------------------------------------------
@@ -91,31 +91,29 @@ if RunEstimation
         'SC0tr',SC0tr,'S0tr',S0tr,'P0tr',P0tr,'Psi',Psi, ...
         'C',C,'A',A,'R',R,'Q',Q,'S0',S0,'P0',P0);
 
-    % ======== launch parallel pool =======================================
-    if isempty(gcp('nocreate')); parpool('threads'); end
+    % ======== launch PROCESS pool (not threads) ==========================
+    p = gcp('nocreate');
+    if ~isempty(p), delete(p); end
+    parpool('local',NCHAINS);
+
     Sconst = parallel.pool.Constant(shared);  % broadcast once
 
     % work split
     draws_per_chain = floor(Ndraws / NCHAINS);
     rng('shuffle'); seeds = randi([1 2^31-2], NCHAINS, 1);
 
-    % ======== Benchmark on each worker (full inner workload) =============
+    % ======== Benchmark (same as before) =================================
     bench_times = zeros(NCHAINS,1);
     parfor c = 1:NCHAINS
         rng(seeds(c),'combRecursive');
-
-        % local copies (mutated within benchmark to mimic actual workload)
         yB = Sconst.Value.y; Cb = Sconst.Value.C; Rb = Sconst.Value.R;
         Ab = Sconst.Value.A; Qb = Sconst.Value.Q; S0b = Sconst.Value.S0; P0b = Sconst.Value.P0;
         r  = Sconst.Value.r; n  = Sconst.Value.n; p  = Sconst.Value.p;
         b0 = Sconst.Value.b0; df0tr = Sconst.Value.df0tr; SC0tr = Sconst.Value.SC0tr;
-
         t0 = tic;
         for jm = 1:Nbench
             kf = KF(yB,Cb,Rb,Ab,Qb,S0b,P0b);
             kc = KC(kf);
-
-            % VAR on cycle block
             Ycyc = kc.S(:,r+1:r+n);
             for jp=1:p
                 Ycyc = [kc.S0(r+(jp-1)*n+1:r+n*jp)'; Ycyc];
@@ -123,13 +121,9 @@ if RunEstimation
             [beta,sigma] = BVAR(Ycyc,p,b0,Sconst.Value.Psi,.2,1);
             Ab(r+1:r+n,r+1:end) = beta';
             Qb(r+1:r+n,r+1:r+n) = sigma;
-
-            % trend shock draw
             Ytr  = [kc.S0(1:r)'; kc.S(:,1:r)];
             SCtr = CovarianceDraw(diff(Ytr), df0tr, diag(SC0tr));
             Qb(1:r,1:r) = SCtr;
-
-            % Lyapunov ONLY for the cycle block (trend has unit roots)
             Ac = Ab(r+1:end, r+1:end);
             Qc = Qb(r+1:end, r+1:end);
             try
@@ -146,22 +140,21 @@ if RunEstimation
             c, Nbench, bench_times(c), bench_times(c)/Nbench);
     end
 
-    % Aggregate benchmark → runtime estimates
-    sec_per_draw = mean(bench_times)/Nbench;     % averaged across workers
+    sec_per_draw = mean(bench_times)/Nbench;
     serial_estimate_hrs   = (sec_per_draw * Ndraws) / 3600;
-    serial_estimate_hrs   = 4; % override
-    parallel_estimate_hrs = serial_estimate_hrs / NCHAINS + 0.3;  % ~+18 min overhead
-
+    parallel_estimate_hrs = serial_estimate_hrs / NCHAINS + 0.3;
     fprintf('--- Runtime Estimates ---\n');
     fprintf('Serial (100k draws):           ~%.2f hours\n', serial_estimate_hrs);
     fprintf('Parallel (%d chains, 100k tot): ~%.2f hours (incl. overhead)\n', ...
         NCHAINS, parallel_estimate_hrs);
     fprintf('-------------------------\n');
 
-    % ======== each chain writes a .mat to disk ============================
+    % ======== Output folder ==============================================
+    ChainsOutDir = 'chains_out';
+    if ~exist(ChainsOutDir,'dir'), mkdir(ChainsOutDir); end
     out_files = strings(NCHAINS,1);
     for c = 1:NCHAINS
-        out_files(c) = sprintf('OutputModel1_chain%02d.mat', c);
+        out_files(c) = fullfile(ChainsOutDir, sprintf('OutputModel1_chain%02d.mat', c));
     end
 
     % ======== run chains in parallel =====================================
@@ -174,7 +167,6 @@ if RunEstimation
     % ======== combine chains =============================================
     CommonTrends = []; Trends = []; TrendsReal = []; Cycles = [];
     AA = []; QQ = []; CC = []; RR = []; LogLik = []; SS0 = []; P_acc = [];
-
     for c = 1:NCHAINS
         S = load(out_files(c));
         CommonTrends = cat(3, CommonTrends, S.CommonTrends);
@@ -190,7 +182,6 @@ if RunEstimation
         P_acc        = [P_acc, S.P_acc]; %#ok<AGROW>
     end
 
-    % burn based on kept draws
     Mkeep   = size(AA,3);
     Discard = ceil(Mkeep/2);
     CommonTrends = CommonTrends(:,:,Discard+1:end);
@@ -212,52 +203,21 @@ else
     load(OutputName)
 end
 
-% =================== post-processing (unchanged) =========================
-Quant = [.025 .16 .5 .84 .975];
-sCommonTrends = sort(CommonTrends,3);
-sCycles       = sort(Cycles,3);
-sTrends       = sort(Trends,3);
-sTrendsReal   = sort(TrendsReal,3);
-
-M = size(sCycles,3);
-qCommonTrends = sCommonTrends(:,:,ceil(Quant*M));
-qCycles       = sCycles(:,:,ceil(Quant*M));
-qTrends       = sTrends(:,:,ceil(Quant*M));
-qTrendsReal   = sTrendsReal(:,:,ceil(Quant*M));
-
-Pi_bar = squeeze(CommonTrends(:,1,:));
-R_bar  = squeeze(CommonTrends(:,2,:));
-Ts_bar = squeeze(CommonTrends(:,3,:));
-
-sPi_bar = sort(Pi_bar,2);
-sR_bar  = sort(R_bar,2);
-sTs_bar = sort(Ts_bar,2);
-
-qPi_bar = sPi_bar(:,ceil(Quant*M));
-qR_bar  = sR_bar(:,ceil(Quant*M));
-qTs_bar = sTs_bar(:,ceil(Quant*M));
-
-Ytr = [Y(:,2) , Y(:,3)-Y(:,2) , Y(:,5)-Y(:,3)];
-save OutMod1forCharts Time qR_bar qPi_bar qTs_bar y
-
-% ---- plotting (your existing PlotStatesShaded/printpdf calls) ----
-% ...
-
 % ===================== Local Function ===================================
 function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
-% One MCMC chain; writes thinned results to out_file
-
     rng(seed,'combRecursive')
 
-    y=S.y; Y=S.Y; Time=S.Time; Mnem=S.Mnem;
-    C=S.C; A=S.A; R=S.R; Q=S.Q; S0=S.S0; P0=S.P0;
+    y=S.y; C=S.C; A=S.A; R=S.R; Q=S.Q; S0=S.S0; P0=S.P0;
     r=S.r; n=S.n; p=S.p; rn=S.rn; b0=S.b0; df0tr=S.df0tr;
-    SC0tr=S.SC0tr; Psi=S.Psi;
+    SC0tr=S.SC0tr; Psi=S.Psi; Y=S.Y; Time=S.Time; Mnem=S.Mnem;
+    % >>> Patch: bring these into scope so save() works
+    S0tr = S.S0tr;
+    P0tr = S.P0tr;
 
     Nkeep = floor(Ndraws/THIN);
     States     = nan(size(y,1), rn, Nkeep);
     Trends     = nan(size(y,1), n , Nkeep);
-    TrendsReal = nan(size(y,1), n , Nkeep);   % T × n
+    TrendsReal = nan(size(y,1), n , Nkeep);
     LogLik     = nan(1, Nkeep);
     SS0        = nan(r, Nkeep);
     AA         = nan(rn, rn, Nkeep);
@@ -299,7 +259,6 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
         SCtr = CovarianceDraw(diff(Ytr), df0tr, diag(SC0tr));
         Q(1:r,1:r) = SCtr;
 
-        % Solve Lyapunov ONLY for cycle block; trend has unit roots
         Ac = A(r+1:end, r+1:end);
         Qc = Q(r+1:end, r+1:end);
         try
@@ -315,7 +274,7 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
             keep_idx = keep_idx + 1;
             States(:,:,keep_idx)     = kc.S;
             Trends(:,:,keep_idx)     = kc.S(:,1:r)*C(:,1:r)';
-            TrendsReal(:,:,keep_idx) = kc.S(:,2:r)*C(:,2:r)';  % T × n
+            TrendsReal(:,:,keep_idx) = kc.S(:,2:r)*C(:,2:r)';
             LogLik(keep_idx) = loglik;
             SS0(:,keep_idx)  = S0(1:r);
             AA(:,:,keep_idx) = A;
@@ -330,7 +289,6 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
         end
     end
 
-    % trim tail if needed
     if keep_idx < Nkeep
         States(:,:,keep_idx+1:end) = [];
         Trends(:,:,keep_idx+1:end) = [];
