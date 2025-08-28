@@ -1,4 +1,4 @@
-% Pi + Yields (Parallel Chains, process pool, benchmark, lean saves)
+% Pi + Yields (Parallel Chains, process pool, benchmark, post-processing)
 clear; clc; close all;
 set(0,'defaultAxesFontName','Times');
 set(0,'DefaultAxesFontSize',15)
@@ -8,17 +8,17 @@ setappdata(0,'defaultAxesYTickFontSize',1)
 
 addpath('Routines');                 % make sure Routines is visible
 
-RunEstimation = 1;
+RunEstimation = 1;                   % run estimation, then post-processing
 OutputName    = 'OutputModel1';
 FigSubFolder  = 'FiguresModel1';
 if ~exist(FigSubFolder,'dir'); mkdir(FigSubFolder); end
 
 % ------------ controls ----------------------------------------------------
 Ndraws     = 100000;   % total draws across ALL chains
-NCHAINS    = 12;       % # parallel chains (match cores)
+NCHAINS    = 8;       % # parallel chains (match cores)
 THIN       = 10;       % keep every THIN-th draw
 Nbench     = 1000;     % per-chain benchmark draws
-SAVE_LEVEL = 'lite';   % 'lite' or 'full'
+SAVE_LEVEL = 'lite';   % 'lite' or 'full' (affects what we save)
 % -------------------------------------------------------------------------
 
 if RunEstimation
@@ -93,8 +93,7 @@ if RunEstimation
         'C',C,'A',A,'R',R,'Q',Q,'S0',S0,'P0',P0,'SAVE_LEVEL',SAVE_LEVEL);
 
     % ======== launch PROCESS pool (not threads) ==========================
-    ppool = gcp('nocreate');
-    if ~isempty(ppool), delete(ppool); end
+    ppool = gcp('nocreate'); if ~isempty(ppool), delete(ppool); end
     parpool('local',NCHAINS);
 
     Sconst = parallel.pool.Constant(shared);  % broadcast once
@@ -171,7 +170,6 @@ if RunEstimation
 
     % ======== combine chains =============================================
     CommonTrends = []; Trends = []; TrendsReal = []; Cycles = [];
-    % Heavy arrays are OPTIONAL in 'full' mode:
     if strcmpi(SAVE_LEVEL,'full')
         AA = []; QQ = []; CC = []; RR = []; LogLik = []; SS0 = []; P_acc = [];
     end
@@ -209,7 +207,7 @@ if RunEstimation
         if exist('SS0','var'), SS0 = SS0(:,Discard+1:end); end
     end
 
-    % ---- final save (lean by default) -----------------------------------
+    % ---- final save ------------------------------------------------------
     if strcmpi(SAVE_LEVEL,'lite')
         save(OutputName,'CommonTrends','Trends','TrendsReal','Cycles', ...
             'Ndraws','Discard','SC0tr','S0tr','P0tr','df0tr','Psi', ...
@@ -220,10 +218,92 @@ if RunEstimation
             'Ndraws','Discard','SC0tr','S0tr','P0tr','df0tr','Psi', ...
             'Time','Y','y','Mnem','NCHAINS','THIN','draws_per_chain','Nbench','bench_times','-v7.3');
     end
-
 else
     load(OutputName)
 end
+
+%% === POST-PROCESS: quantiles, CSV, and figures ==========================
+% (Runs automatically after estimation, or on its own if RunEstimation=0.)
+if ~exist('CommonTrends','var'), load(OutputName); end
+if ~exist('FigSubFolder','var') || ~exist(FigSubFolder,'dir')
+    FigSubFolder = 'FiguresModel1'; mkdir(FigSubFolder);
+end
+
+Quant = [.025 .16 .50 .84 .975];
+
+% Sort along the 3rd dim and take quantiles
+sCommonTrends = sort(CommonTrends,3);
+sCycles       = sort(Cycles,3);
+sTrends       = sort(Trends,3);
+sTrendsReal   = sort(TrendsReal,3);
+
+M = size(sCycles,3);
+qCommonTrends = sCommonTrends(:,:,ceil(Quant*M));
+qCycles       = sCycles(:,:,ceil(Quant*M));
+qTrends       = sTrends(:,:,ceil(Quant*M));
+qTrendsReal   = sTrendsReal(:,:,ceil(Quant*M));
+
+% Convenience series
+Pi_bar = squeeze(CommonTrends(:,1,:));
+R_bar  = squeeze(CommonTrends(:,2,:));
+Ts_bar = squeeze(CommonTrends(:,3,:));
+
+sPi_bar = sort(Pi_bar,2);
+sR_bar  = sort(R_bar,2);
+sTs_bar = sort(Ts_bar,2);
+
+qPi_bar = sPi_bar(:,ceil(Quant*M));
+qR_bar  = sR_bar(:,ceil(Quant*M));
+qTs_bar = sTs_bar(:,ceil(Quant*M));
+
+% --- Write CSV and MAT for charts ---
+Ytr = [Y(:,2), Y(:,3)-Y(:,2), Y(:,5)-Y(:,3)];
+save(fullfile(FigSubFolder,'OutMod1forCharts.mat'),'Time','qR_bar','qPi_bar','qTs_bar','y','-v7.3');
+
+Tdatetime = datetime(Time,'ConvertFrom','datenum');
+tbl = table(Tdatetime, ...
+    qPi_bar(:,3), qPi_bar(:,1), qPi_bar(:,2), qPi_bar(:,4), qPi_bar(:,5), ...
+    qR_bar(:,3),  qR_bar(:,1),  qR_bar(:,2),  qR_bar(:,4),  qR_bar(:,5), ...
+    qTs_bar(:,3), qTs_bar(:,1), qTs_bar(:,2), qTs_bar(:,4), qTs_bar(:,5), ...
+    'VariableNames', {'Date', ...
+    'Pi_bar_med','Pi_bar_p2_5','Pi_bar_p16','Pi_bar_p84','Pi_bar_p97_5', ...
+    'R_bar_med','R_bar_p2_5','R_bar_p16','R_bar_p84','R_bar_p97_5', ...
+    'Ts_bar_med','Ts_bar_p2_5','Ts_bar_p16','Ts_bar_p84','Ts_bar_p97_5'});
+writetable(tbl, fullfile(FigSubFolder,'OutMod1forCharts.csv'));
+
+% --- Figures (PDFs) ---
+f = figure; PlotStatesShaded(Time,qPi_bar); title('\pi^*');
+printpdf(f, fullfile(FigSubFolder,'PIbar.pdf'));
+
+f = figure; PlotStatesShaded(Time,qPi_bar); hold on;
+plot(Time,y(:,2),'b-','linewidth',2.0); plot(Time,y(:,1),'b:','linewidth',1);
+title('\pi^* and \pi'); hold off;
+printpdf(f, fullfile(FigSubFolder,'PIbar_obs.pdf'));
+
+f = figure; PlotStatesShaded(Time,qR_bar); title('r^*');
+printpdf(f, fullfile(FigSubFolder,'Rbar.pdf'));
+
+f = figure; PlotStatesShaded(Time,qR_bar); hold on;
+plot(Time,y(:,4)-y(:,2),'b*-','linewidth',2.0);
+plot(Time,y(:,3)-y(:,2),'b:','linewidth',1); hold off;
+title('r^*, r-\pi^e and r^e-\pi^e');
+printpdf(f, fullfile(FigSubFolder,'Rbar_obs.pdf'));
+
+f = figure; PlotStatesShaded(Time,qTs_bar); title('Ts^*');
+printpdf(f, fullfile(FigSubFolder,'TSbar.pdf'));
+
+f = figure; PlotStatesShaded(Time,qTs_bar); hold on;
+plot(Time,y(:,5)-y(:,3),'b:','linewidth',1); hold off;
+title('Ts^*, r^L-r');
+printpdf(f, fullfile(FigSubFolder,'TSbar_obs.pdf'));
+
+f = figure; PlotStatesShaded(Time,qR_bar); axis([-inf inf -.5 3.5]);
+printpdf(f, fullfile(FigSubFolder,'Rscaled.pdf'));
+
+f = figure; PlotStatesShaded(Time,qTs_bar); axis([-inf inf -.5 3.5]);
+printpdf(f, fullfile(FigSubFolder,'TSscaled.pdf'));
+
+disp('Post-processing complete: wrote CSV/MAT and PDFs in FiguresModel1/')
 
 % ===================== Local Function ===================================
 function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
@@ -232,8 +312,7 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
     y=S.y; C=S.C; A=S.A; R=S.R; Q=S.Q; S0=S.S0; P0=S.P0;
     r=S.r; n=S.n; p=S.p; rn=S.rn; b0=S.b0; df0tr=S.df0tr;
     SC0tr=S.SC0tr; Psi=S.Psi; Y=S.Y; Time=S.Time; Mnem=S.Mnem;
-    S0tr = S.S0tr; P0tr = S.P0tr;
-    SAVE_LEVEL = S.SAVE_LEVEL;
+    S0tr = S.S0tr; P0tr = S.P0tr; SAVE_LEVEL = S.SAVE_LEVEL;
 
     Nkeep = floor(Ndraws/THIN);
     States     = nan(size(y,1), rn, Nkeep);
@@ -329,7 +408,7 @@ function run_one_chain(chain_id, seed, Ndraws, THIN, S, out_file)
     CommonTrends = States(:,1:r,:);
     Cycles       = States(:,r+1:r+n,:);
 
-    % ---- per-chain save (lean by default) --------------------------------
+    % per-chain save
     if strcmpi(SAVE_LEVEL,'lite')
         save(out_file,'CommonTrends','Trends','TrendsReal','Cycles', ...
             'SC0tr','S0tr','P0tr','df0tr','Psi','Time','Y','y','Mnem','THIN','Ndraws','-v7.3');
