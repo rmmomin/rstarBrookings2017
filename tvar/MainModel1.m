@@ -35,7 +35,7 @@ if RunEstimation
         Y0    = DATA(:,2:end);
     end
 
-    FirstY = 1960; LastY = 2016;
+    FirstY = 1960; LastY = 2025;
     T0 = find(year(Time0)==FirstY,1,'first');
     T1 = find(year(Time0)==LastY ,1,'last');
 
@@ -47,8 +47,8 @@ if RunEstimation
     y = Y;
     [T,n] = size(y);
     T70  = find(year(Time)==1970,1,'last');
-    Tzlb = find(year(Time)==2008,1,'last');
-    y(Tzlb:end, strcmp(Mnem,'BILL')) = NaN;
+    %Tzlb = find(year(Time)==2008,1,'last');
+    %y(Tzlb:end, strcmp(Mnem,'BILL')) = NaN;
     y(1:T70,2) = NaN;
 
     % model matrices (shared constants)
