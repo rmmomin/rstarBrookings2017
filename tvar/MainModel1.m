@@ -35,7 +35,7 @@ if RunEstimation
         Y0    = DATA(:,2:end);
     end
 
-    FirstY = 1960; LastY = 2016;
+    FirstY = 1960; LastY = 2025;
     T0 = find(year(Time0)==FirstY,1,'first');
     T1 = find(year(Time0)==LastY ,1,'last');
 
@@ -46,9 +46,41 @@ if RunEstimation
 
     y = Y;
     [T,n] = size(y);
-    T70  = find(year(Time)==1970,1,'last');
-    Tzlb = find(year(Time)==2008,1,'last');
-    y(Tzlb:end, strcmp(Mnem,'BILL')) = NaN;
+    
+    % --- Normalize Time and keep T70 robustly ---
+    if isdatetime(Time)
+        TimeDT = Time;
+    else
+        % assume serial datenum
+        TimeDT = datetime(Time,'ConvertFrom','datenum');
+    end
+    T70 = find(year(TimeDT)==1970, 1, 'last');
+    
+    % --- ZLB intervals (closed-open) ---
+    zlb = [datetime(2008,12,16) datetime(2015,12,16);  % GFC ZLB
+           datetime(2020,03,15) datetime(2022,03,16)]; % Pandemic ZLB
+    
+    % --- Build mask in the appropriate domain ---
+    if isdatetime(Time)
+        % Time is datetime already
+        isZLB = false(T,1);
+        for k = 1:size(zlb,1)
+            isZLB = isZLB | isbetween(Time, zlb(k,1), zlb(k,2), 'closed-open');
+        end
+    else
+        % Time is numeric (serial datenum) -> compare in datenum space
+        zlbNum = datenum(zlb); % converts each datetime to datenum
+        isZLB = (Time >= zlbNum(1,1) & Time < zlbNum(1,2)) | ...
+                (Time >= zlbNum(2,1) & Time < zlbNum(2,2));
+    end
+    
+    % --- NaN out BILL during ZLB dates ---
+    billCol = strcmpi(Mnem,'BILL');
+    y(isZLB, billCol) = NaN;
+
+    
+    %Tzlb = find(year(Time)==2008,1,'last');
+    %y(Tzlb:end, strcmp(Mnem,'BILL')) = NaN;
     y(1:T70,2) = NaN;
 
     % model matrices (shared constants)
