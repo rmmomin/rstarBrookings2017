@@ -60,6 +60,10 @@ depending on the system Python packages:
    `python/output/<RunName>/Figures`, and a compressed `.npz` copy of the
    combined draws for reuse.
 
+Example nominal neutral rate chart:
+
+![Nominal neutral rate](python/output/OutputModel1/Figures/NRbar.png)
+
 The runtime expectations in `main_model1.py` still apply (100k draws × 8
 chains by default). Consider lowering `Ndraws` or toggling `RunEstimation`
 while testing.
