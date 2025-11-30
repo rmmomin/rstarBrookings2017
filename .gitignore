@@ -8,5 +8,7 @@ venv/
 
 # Generated figures/output
 tvar/chains_out/
+tvar/chains_out/
 tvar/Figures*/
 tvar/output_data/
+python/output/
