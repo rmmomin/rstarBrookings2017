@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from numpy.typing import ArrayLike, NDArray
+
+try:  # NumPy < 1.20 fallback
+    from numpy.typing import ArrayLike, NDArray
+except ImportError:  # pragma: no cover - older environments
+    ArrayLike = Any  # type: ignore
+    NDArray = np.ndarray  # type: ignore
 
 
 def cholred(matrix: NDArray[np.float64], tol: float = 1e-12) -> NDArray[np.float64]:
