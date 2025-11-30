@@ -11,7 +11,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from numpy.typing import NDArray
+
+try:  # NumPy < 1.20 fallback
+    from numpy.typing import NDArray
+except ImportError:  # pragma: no cover - older environments
+    NDArray = np.ndarray  # type: ignore
+
 from scipy.io import loadmat, savemat
 from scipy.linalg import solve_discrete_lyapunov
 
@@ -23,6 +28,8 @@ from .routines import (
     plot_states_shaded,
     save_pdf,
 )
+
+BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 def matlab_datenum(dt: datetime) -> float:
@@ -70,7 +77,9 @@ def load_input_data(path: Path) -> Tuple[pd.DatetimeIndex, List[str], NDArray[np
 
 def prepare_data() -> SharedState:
     # Controls -------------------------------------------------------------
-    data_path = Path("DataCompleteLatest.xls")
+    data_path = BASE_DIR / "DataCompleteLatest.xls"
+    if not data_path.exists():
+        raise FileNotFoundError(f"Missing input data at {data_path}")
     time_index, mnemonics_full, values_full = load_input_data(data_path)
 
     first_year = 1960
@@ -376,7 +385,7 @@ def run_chain(
                     "P_acc": p_acc,
                 }
             )
-        savemat(save_path, out_dict, do_compression=True)
+        savemat(str(save_path), out_dict, do_compression=True)
 
     return chain_id, elapsed_total
 
@@ -389,7 +398,7 @@ def combine_chains(
     collect_full = save_level.lower() == "full"
 
     for path in chain_paths:
-        data = loadmat(path)
+        data = loadmat(str(path))
         for key in ["CommonTrends", "Trends", "TrendsReal", "Cycles"]:
             arr = data[key]
             if arr.ndim == 2:
@@ -464,7 +473,7 @@ def post_process(
     qTs_bar = compute_quantiles(Ts_bar[:, None, :], quant)[:, 0, :]
 
     savemat(
-        fig_dir / "OutMod1forCharts.mat",
+        str(fig_dir / "OutMod1forCharts.mat"),
         {
             "Time": shared.time_serial[:, None],
             "qR_bar": qR_bar,
@@ -595,8 +604,9 @@ def post_process(
 def main() -> None:
     RunEstimation = True
     OutputName = "OutputModel1"
-    FigSubFolder = Path("FiguresModel1")
-    FigSubFolder.mkdir(exist_ok=True)
+    output_mat = BASE_DIR / f"{OutputName}.mat"
+    FigSubFolder = BASE_DIR / "FiguresModel1"
+    FigSubFolder.mkdir(parents=True, exist_ok=True)
 
     shared = prepare_data()
 
@@ -635,8 +645,8 @@ def main() -> None:
         )
         print("-------------------------")
 
-        chains_dir = Path("chains_out")
-        chains_dir.mkdir(exist_ok=True)
+        chains_dir = BASE_DIR / "chains_out"
+        chains_dir.mkdir(parents=True, exist_ok=True)
         chain_paths = [
             chains_dir / f"{OutputName}_chain{chain_id:02d}.mat"
             for chain_id in range(1, NCHAINS + 1)
@@ -683,11 +693,14 @@ def main() -> None:
             "Nbench": np.array([Nbench]),
             "bench_times": np.array(bench_times),
         }
-        savemat(f"{OutputName}.mat", final_dict, do_compression=True)
+        savemat(str(output_mat), final_dict, do_compression=True)
     else:
-        combined = loadmat(f"{OutputName}.mat")
+        if not output_mat.exists():
+            raise FileNotFoundError(
+                f"{output_mat} not found; rerun with RunEstimation=True first"
+            )
 
-    combined = loadmat(f"{OutputName}.mat")
+    combined = loadmat(str(output_mat))
     samples = {
         "CommonTrends": combined["CommonTrends"],
         "Trends": combined["Trends"],
