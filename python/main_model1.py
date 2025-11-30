@@ -589,6 +589,7 @@ def post_process(
         median_series = data[:, 2]
         last_value = median_series[-1]
         last_date = time_dt[-1]
+        quarter_label = f"{pd.Period(last_date, freq='Q')}"
         if overlays:
             for overlay in overlays:
                 series = np.asarray(overlay["y"], dtype=float)
@@ -606,15 +607,15 @@ def post_process(
         ax.spines["right"].set_visible(False)
         ax.yaxis.grid(True, linestyle=":", linewidth=0.5, color="0.8")
         ax.annotate(
-            f"{last_value:.2f}",
+            f"{quarter_label}  {last_value:.2f}",
             xy=(last_date, last_value),
-            xytext=(8, 0),
+            xytext=(0, 12),
             textcoords="offset points",
             fontsize=10,
             fontweight="bold",
-            ha="left",
-            va="center",
-            bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
+            ha="center",
+            va="bottom",
+            bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "0.7"},
         )
         fig.text(
             0.07,
