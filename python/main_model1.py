@@ -18,7 +18,6 @@ try:  # NumPy < 1.20 fallback
 except ImportError:  # pragma: no cover - older environments
     NDArray = np.ndarray  # type: ignore
 
-from scipy.io import loadmat, savemat
 from scipy.linalg import solve_discrete_lyapunov
 
 from .routines import (
@@ -27,7 +26,7 @@ from .routines import (
     kalman_filter,
     kalman_smoother_draw,
     plot_states_shaded,
-    save_pdf,
+    save_figure,
 )
 
 PYTHON_DIR = Path(__file__).resolve().parent
@@ -35,6 +34,8 @@ REPO_ROOT = PYTHON_DIR.parents[0]
 LEGACY_TVAR_DIR = REPO_ROOT / "tvar"
 PYTHON_DATA_DIR = PYTHON_DIR / "data"
 OUTPUT_ROOT = PYTHON_DIR / "output"
+DATA_OUTPUT_DIR = OUTPUT_ROOT / "Data"
+FIGURES_OUTPUT_DIR = OUTPUT_ROOT / "Figures"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -398,7 +399,7 @@ def run_chain(
             "Time": shared.time_serial[:, None],
             "Y": shared.Y,
             "y": shared.y,
-            "Mnem": np.array(shared.mnemonics, dtype=object)[:, None],
+            "Mnem": np.array(shared.mnemonics, dtype=object),
             "THIN": np.array([thin]),
             "Ndraws": np.array([draws]),
         }
@@ -414,7 +415,7 @@ def run_chain(
                     "P_acc": p_acc,
                 }
             )
-        savemat(str(save_path), out_dict, do_compression=True)
+        np.savez_compressed(str(save_path), **out_dict)
 
     return chain_id, elapsed_total
 
@@ -427,17 +428,8 @@ def combine_chains(
     collect_full = save_level.lower() == "full"
 
     for path in chain_paths:
-        data = loadmat(str(path))
-        for key in ["CommonTrends", "Trends", "TrendsReal", "Cycles"]:
-            arr = data[key]
-            if arr.ndim == 2:
-                arr = arr[:, :, None]
-            if key in combined:
-                combined[key] = np.concatenate([combined[key], arr], axis=2)
-            else:
-                combined[key] = arr
-        if collect_full:
-            for key in ["AA", "QQ", "CC", "RR"]:
+        with np.load(str(path), allow_pickle=True) as data:
+            for key in ["CommonTrends", "Trends", "TrendsReal", "Cycles"]:
                 if key not in data:
                     continue
                 arr = data[key]
@@ -447,14 +439,27 @@ def combine_chains(
                     combined[key] = np.concatenate([combined[key], arr], axis=2)
                 else:
                     combined[key] = arr
-            for key in ["LogLik", "SS0", "P_acc"]:
-                if key not in data:
-                    continue
-                arr = np.atleast_1d(data[key])
-                if key in combined:
-                    combined[key] = np.concatenate([combined[key], arr], axis=arr.ndim - 1)
-                else:
-                    combined[key] = arr
+            if collect_full:
+                for key in ["AA", "QQ", "CC", "RR"]:
+                    if key not in data:
+                        continue
+                    arr = data[key]
+                    if arr.ndim == 2:
+                        arr = arr[:, :, None]
+                    if key in combined:
+                        combined[key] = np.concatenate([combined[key], arr], axis=2)
+                    else:
+                        combined[key] = arr
+                for key in ["LogLik", "SS0", "P_acc"]:
+                    if key not in data:
+                        continue
+                    arr = np.atleast_1d(data[key])
+                    if key in combined:
+                        combined[key] = np.concatenate(
+                            [combined[key], arr], axis=arr.ndim - 1
+                        )
+                    else:
+                        combined[key] = arr
 
     return combined
 
@@ -475,9 +480,11 @@ def compute_quantiles(samples: NDArray[np.float64], quantiles: Sequence[float]) 
 def post_process(
     samples: Dict[str, NDArray[np.float64]],
     shared: SharedState,
-    output_name: str,
+    data_dir: Path,
     fig_dir: Path,
 ) -> None:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    fig_dir.mkdir(parents=True, exist_ok=True)
     quant = [0.025, 0.16, 0.50, 0.84, 0.975]
 
     Mkeep = samples["CommonTrends"].shape[2]
@@ -501,18 +508,6 @@ def post_process(
     qR_bar = compute_quantiles(R_bar[:, None, :], quant)[:, 0, :]
     qTs_bar = compute_quantiles(Ts_bar[:, None, :], quant)[:, 0, :]
 
-    savemat(
-        str(fig_dir / "OutMod1forCharts.mat"),
-        {
-            "Time": shared.time_serial[:, None],
-            "qR_bar": qR_bar,
-            "qPi_bar": qPi_bar,
-            "qTs_bar": qTs_bar,
-            "y": shared.y,
-        },
-        do_compression=True,
-    )
-
     time_dt = pd.to_datetime(shared.time_datetimes)
     df = pd.DataFrame(
         {
@@ -534,7 +529,38 @@ def post_process(
             "Ts_bar_p97_5": qTs_bar[:, 4],
         }
     )
-    df.to_csv(fig_dir / "OutMod1forCharts.csv", index=False)
+    df.to_csv(data_dir / "OutMod1forCharts.csv", index=False)
+
+    def quantile_frame(
+        quantile_array: NDArray[np.float64],
+        series_names: Sequence[str],
+        filename: str,
+    ) -> None:
+        frames = []
+        for idx, name in enumerate(series_names):
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "Date": time_dt,
+                        "Series": name,
+                        "p2_5": quantile_array[:, idx, 0],
+                        "p16": quantile_array[:, idx, 1],
+                        "p50": quantile_array[:, idx, 2],
+                        "p84": quantile_array[:, idx, 3],
+                        "p97_5": quantile_array[:, idx, 4],
+                    }
+                )
+            )
+        pd.concat(frames, ignore_index=True).to_csv(data_dir / filename, index=False)
+
+    quantile_frame(
+        qCommonTrends,
+        ["Pi_bar_trend", "R_bar_trend", "Ts_bar_trend"],
+        "CommonTrends_quantiles.csv",
+    )
+    quantile_frame(qTrends, shared.mnemonics, "ObservedTrends_quantiles.csv")
+    quantile_frame(qTrendsReal, shared.mnemonics, "RealTrends_quantiles.csv")
+    quantile_frame(qCycles, shared.mnemonics, "Cycles_quantiles.csv")
 
     y = shared.y
 
@@ -558,7 +584,7 @@ def post_process(
         return fig
 
     figs = [
-        (fig_with_shaded(qPi_bar, r"$\pi^*$"), "PIbar.pdf"),
+        (fig_with_shaded(qPi_bar, r"$\pi^*$"), "PIbar.png"),
         (
             fig_with_shaded(
                 qPi_bar,
@@ -568,9 +594,9 @@ def post_process(
                     {"y": y[:, 0], "style": "b:", "kwargs": {"linewidth": 1.0}},
                 ],
             ),
-            "PIbar_obs.pdf",
+            "PIbar_obs.png",
         ),
-        (fig_with_shaded(qR_bar, r"$r^*$"), "Rbar.pdf"),
+        (fig_with_shaded(qR_bar, r"$r^*$"), "Rbar.png"),
         (
             fig_with_shaded(
                 qR_bar,
@@ -588,9 +614,9 @@ def post_process(
                     },
                 ],
             ),
-            "Rbar_obs.pdf",
+            "Rbar_obs.png",
         ),
-        (fig_with_shaded(qTs_bar, r"$T_s^*$"), "TSbar.pdf"),
+        (fig_with_shaded(qTs_bar, r"$T_s^*$"), "TSbar.png"),
         (
             fig_with_shaded(
                 qTs_bar,
@@ -603,7 +629,7 @@ def post_process(
                     }
                 ],
             ),
-            "TSbar_obs.pdf",
+            "TSbar_obs.png",
         ),
         (
             fig_with_shaded(
@@ -611,7 +637,7 @@ def post_process(
                 r"$r^*$",
                 ylim=(-0.5, 3.5),
             ),
-            "Rscaled.pdf",
+            "Rscaled.png",
         ),
         (
             fig_with_shaded(
@@ -619,24 +645,31 @@ def post_process(
                 r"$T_s^*$",
                 ylim=(-0.5, 3.5),
             ),
-            "TSscaled.pdf",
+            "TSscaled.png",
         ),
     ]
 
     for fig, name in figs:
-        save_pdf(fig, fig_dir / name)
+        save_figure(fig, fig_dir / name)
         plt.close(fig)
 
-    print(f"Post-processing complete: outputs in {fig_dir}")
+    print(f"Post-processing complete: data in {data_dir}, figures in {fig_dir}")
 
 
 def main() -> None:
     RunEstimation = _env_bool("RSTAR_RUN_ESTIMATION", True)
     OutputName = os.getenv("RSTAR_OUTPUT_NAME", "OutputModel1")
+
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    output_mat = OUTPUT_ROOT / f"{OutputName}.mat"
-    FigSubFolder = OUTPUT_ROOT / "FiguresModel1"
-    FigSubFolder.mkdir(parents=True, exist_ok=True)
+    run_output_dir = OUTPUT_ROOT / OutputName
+    data_dir = run_output_dir / "Data"
+    fig_dir = run_output_dir / "Figures"
+    chains_dir = run_output_dir / "chains_out"
+    combined_file = data_dir / "combined_draws.npz"
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    chains_dir.mkdir(parents=True, exist_ok=True)
 
     shared = prepare_data()
 
@@ -680,10 +713,8 @@ def main() -> None:
         )
         print("-------------------------")
 
-        chains_dir = OUTPUT_ROOT / "chains_out"
-        chains_dir.mkdir(parents=True, exist_ok=True)
         chain_paths = [
-            chains_dir / f"{OutputName}_chain{chain_id:02d}.mat"
+            chains_dir / f"{OutputName}_chain{chain_id:02d}.npz"
             for chain_id in range(1, NCHAINS + 1)
         ]
         args = [
@@ -710,7 +741,8 @@ def main() -> None:
 
         combined = combine_chains(chain_paths, shared.save_level)
 
-        final_dict = {
+        combined = combine_chains(chain_paths, shared.save_level)
+        combined_payload = {
             "CommonTrends": combined["CommonTrends"],
             "Trends": combined["Trends"],
             "TrendsReal": combined["TrendsReal"],
@@ -725,28 +757,34 @@ def main() -> None:
             "Time": shared.time_serial[:, None],
             "Y": shared.Y,
             "y": shared.y,
-            "Mnem": np.array(shared.mnemonics, dtype=object)[:, None],
+            "Mnem": np.array(shared.mnemonics, dtype=object),
             "NCHAINS": np.array([NCHAINS]),
             "THIN": np.array([THIN]),
             "draws_per_chain": np.array([draws_per_chain]),
             "Nbench": np.array([Nbench]),
             "bench_times": np.array(bench_times),
         }
-        savemat(str(output_mat), final_dict, do_compression=True)
+        np.savez_compressed(str(combined_file), **combined_payload)
+        samples = {
+            "CommonTrends": combined["CommonTrends"],
+            "Trends": combined["Trends"],
+            "TrendsReal": combined["TrendsReal"],
+            "Cycles": combined["Cycles"],
+        }
     else:
-        if not output_mat.exists():
+        if not combined_file.exists():
             raise FileNotFoundError(
-                f"{output_mat} not found; rerun with RunEstimation=True first"
+                f"{combined_file} not found; rerun with RSTAR_RUN_ESTIMATION=1 first"
             )
+        with np.load(str(combined_file), allow_pickle=True) as stored:
+            samples = {
+                "CommonTrends": stored["CommonTrends"],
+                "Trends": stored["Trends"],
+                "TrendsReal": stored["TrendsReal"],
+                "Cycles": stored["Cycles"],
+            }
 
-    combined = loadmat(str(output_mat))
-    samples = {
-        "CommonTrends": combined["CommonTrends"],
-        "Trends": combined["Trends"],
-        "TrendsReal": combined["TrendsReal"],
-        "Cycles": combined["Cycles"],
-    }
-    post_process(samples, shared, OutputName, FigSubFolder)
+    post_process(samples, shared, data_dir, fig_dir)
 
 
 if __name__ == "__main__":
