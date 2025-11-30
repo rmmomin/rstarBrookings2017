@@ -13,7 +13,11 @@ by side during the transition.
 
 ## Repository layout
 
-- `python/` – modernized Python package containing the TVAR port.
+- `python/` – modernized Python package containing the TVAR port (reads inputs
+  from `python/data/` and writes outputs under `python/output/`).
+- `python/data/` – copy of the Excel input (`DataCompleteLatest.xls`) used by
+  the estimator.
+- `python/output/` – default destination for MAT/CSV/PDF artifacts.
 - `tvar/` – original MATLAB scripts, routines, data inputs, and legacy outputs.
 - `requirements.txt` – runtime dependencies for the Python environment.
 
@@ -47,9 +51,10 @@ depending on the system Python packages:
    Supported toggles: `RSTAR_RUN_ESTIMATION`, `RSTAR_OUTPUT_NAME`,
    `RSTAR_NDRAWS`, `RSTAR_NCHAINS`, `RSTAR_THIN`, `RSTAR_NBENCH`.
 
-   The Python port still reads inputs from the legacy MATLAB directory
-   (`tvar/DataCompleteLatest.xls`) and drops its MAT/PDF/CSV outputs into
-   the same `tvar` subfolders so both toolchains stay in sync.
+   The Python port looks for `DataCompleteLatest.xls` inside `python/data/`
+   (falling back to `tvar/` if needed) and saves its MAT/CSV/PDF artifacts
+   under `python/output/` to keep the generated files separated from the
+   MATLAB figures.
 
 The runtime expectations in `main_model1.py` still apply (100k draws × 8
 chains by default). Consider lowering `Ndraws` or toggling `RunEstimation`
