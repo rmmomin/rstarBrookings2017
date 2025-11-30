@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import multiprocessing as mp
+import os
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -30,6 +31,23 @@ from .routines import (
 )
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:  # pragma: no cover - protective branch
+        raise ValueError(f"{name} must be an integer, got {value!r}") from exc
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def matlab_datenum(dt: datetime) -> float:
@@ -602,18 +620,23 @@ def post_process(
 
 
 def main() -> None:
-    RunEstimation = True
-    OutputName = "OutputModel1"
+    RunEstimation = _env_bool("RSTAR_RUN_ESTIMATION", True)
+    OutputName = os.getenv("RSTAR_OUTPUT_NAME", "OutputModel1")
     output_mat = BASE_DIR / f"{OutputName}.mat"
     FigSubFolder = BASE_DIR / "FiguresModel1"
     FigSubFolder.mkdir(parents=True, exist_ok=True)
 
     shared = prepare_data()
 
-    Ndraws = 100_000
-    NCHAINS = 8
-    THIN = 10
-    Nbench = 1000
+    Ndraws = _env_int("RSTAR_NDRAWS", 100_000)
+    NCHAINS = max(1, _env_int("RSTAR_NCHAINS", 8))
+    THIN = max(1, _env_int("RSTAR_THIN", 10))
+    Nbench = max(1, _env_int("RSTAR_NBENCH", 1000))
+    draws_per_chain = max(1, Ndraws // NCHAINS)
+    if draws_per_chain * NCHAINS != Ndraws:
+        print(
+            f"Adjusted draws per chain to {draws_per_chain} (requested {Ndraws} total)."
+        )
 
     seeds = np.random.SeedSequence().spawn(NCHAINS)
     chain_seeds = [int(seed.generate_state(1)[0]) for seed in seeds]
@@ -651,21 +674,25 @@ def main() -> None:
             chains_dir / f"{OutputName}_chain{chain_id:02d}.mat"
             for chain_id in range(1, NCHAINS + 1)
         ]
+        args = [
+            (
+                chain_id,
+                chain_seeds[chain_id - 1],
+                draws_per_chain,
+                THIN,
+                shared,
+                chain_paths[chain_id - 1],
+                True,
+            )
+            for chain_id in range(1, NCHAINS + 1)
+        ]
 
-        with mp.get_context("spawn").Pool(processes=NCHAINS) as pool:
-            args = [
-                (
-                    chain_id,
-                    chain_seeds[chain_id - 1],
-                    Ndraws // NCHAINS,
-                    THIN,
-                    shared,
-                    chain_paths[chain_id - 1],
-                    True,
-                )
-                for chain_id in range(1, NCHAINS + 1)
-            ]
-            results = pool.starmap(run_chain, args)
+        if NCHAINS == 1:
+            results = [run_chain(*args[0])]
+        else:
+            with mp.get_context("spawn").Pool(processes=NCHAINS) as pool:
+                results = pool.starmap(run_chain, args)
+
         total_time = sum(duration for _, duration in results)
         print(f"All chains finished; aggregate wall time {total_time:.1f} sec")
 
@@ -689,7 +716,7 @@ def main() -> None:
             "Mnem": np.array(shared.mnemonics, dtype=object)[:, None],
             "NCHAINS": np.array([NCHAINS]),
             "THIN": np.array([THIN]),
-            "draws_per_chain": np.array([Ndraws // NCHAINS]),
+            "draws_per_chain": np.array([draws_per_chain]),
             "Nbench": np.array([Nbench]),
             "bench_times": np.array(bench_times),
         }

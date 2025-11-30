@@ -32,6 +32,14 @@ estimation without depending on the system Python packages:
    python -m tvar.python.main_model1
    ```
 
+   You can override the heavy defaults without editing code by supplying
+   environment variables, e.g.
+   ```
+   RSTAR_NDRAWS=200 RSTAR_NCHAINS=1 RSTAR_THIN=2 python -m tvar.python.main_model1
+   ```
+   Supported toggles: `RSTAR_RUN_ESTIMATION`, `RSTAR_OUTPUT_NAME`,
+   `RSTAR_NDRAWS`, `RSTAR_NCHAINS`, `RSTAR_THIN`, `RSTAR_NBENCH`.
+
 The runtime expectations in `main_model1.py` still apply (100k draws × 8
 chains by default). Consider lowering `Ndraws` or toggling `RunEstimation`
 while testing.
