@@ -617,9 +617,9 @@ def post_process(
             bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
         )
         fig.text(
+            0.07,
             0.01,
-            0.01,
-            "Source: Del Negro et al. (2017), Brookings BPEA replication.",
+            "Source: Del Negro et al. (2017), Brookings BPEA replication and extension.",
             fontsize=9,
         )
         return fig
