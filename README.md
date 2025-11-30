@@ -14,10 +14,13 @@ by side during the transition.
 ## Repository layout
 
 - `python/` – modernized Python package containing the TVAR port (reads inputs
-  from `python/data/` and writes outputs under `python/output/`).
+  from `python/data/` and writes run-specific outputs under `python/output/`).
 - `python/data/` – copy of the Excel input (`DataCompleteLatest.xls`) used by
   the estimator.
-- `python/output/` – default destination for MAT/CSV/PDF artifacts.
+- `python/output/<RunName>/Data` – CSV data products (quantiles, chart feeds,
+  combined draws archive).
+- `python/output/<RunName>/Figures` – PNG charts corresponding to the Brookings
+  figures.
 - `tvar/` – original MATLAB scripts, routines, data inputs, and legacy outputs.
 - `requirements.txt` – runtime dependencies for the Python environment.
 
@@ -52,9 +55,10 @@ depending on the system Python packages:
    `RSTAR_NDRAWS`, `RSTAR_NCHAINS`, `RSTAR_THIN`, `RSTAR_NBENCH`.
 
    The Python port looks for `DataCompleteLatest.xls` inside `python/data/`
-   (falling back to `tvar/` if needed) and saves its MAT/CSV/PDF artifacts
-   under `python/output/` to keep the generated files separated from the
-   MATLAB figures.
+   (falling back to `tvar/` if needed). Each run drops CSV outputs into
+   `python/output/<RunName>/Data`, PNG figures into
+   `python/output/<RunName>/Figures`, and a compressed `.npz` copy of the
+   combined draws for reuse.
 
 The runtime expectations in `main_model1.py` still apply (100k draws × 8
 chains by default). Consider lowering `Ndraws` or toggling `RunEstimation`

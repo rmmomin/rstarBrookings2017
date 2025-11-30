@@ -318,6 +318,6 @@ def plot_states_shaded(
     return ax
 
 
-def save_pdf(fig: plt.Figure, output: Path | str) -> None:
-    """Save a Matplotlib figure to PDF with tight bounds."""
-    fig.savefig(output, format="pdf", bbox_inches="tight")
+def save_figure(fig: plt.Figure, output: Path | str, fmt: str = "png") -> None:
+    """Save a Matplotlib figure to disk with tight bounds."""
+    fig.savefig(output, format=fmt, dpi=300, bbox_inches="tight")
