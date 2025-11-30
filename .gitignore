@@ -12,3 +12,4 @@ tvar/chains_out/
 tvar/Figures*/
 tvar/output_data/
 python/output/**/combined_draws.npz
+python/output/**/chains_out/
