@@ -30,8 +30,11 @@ from .routines import (
     save_pdf,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+PYTHON_DIR = Path(__file__).resolve().parent
+REPO_ROOT = PYTHON_DIR.parents[0]
 LEGACY_TVAR_DIR = REPO_ROOT / "tvar"
+PYTHON_DATA_DIR = PYTHON_DIR / "data"
+OUTPUT_ROOT = PYTHON_DIR / "output"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -96,9 +99,16 @@ def load_input_data(path: Path) -> Tuple[pd.DatetimeIndex, List[str], NDArray[np
 
 def prepare_data() -> SharedState:
     # Controls -------------------------------------------------------------
-    data_path = LEGACY_TVAR_DIR / "DataCompleteLatest.xls"
-    if not data_path.exists():
-        raise FileNotFoundError(f"Missing input data at {data_path}")
+    data_candidates = [
+        PYTHON_DATA_DIR / "DataCompleteLatest.xls",
+        LEGACY_TVAR_DIR / "DataCompleteLatest.xls",
+    ]
+    data_path = next((path for path in data_candidates if path.exists()), None)
+    if data_path is None:
+        raise FileNotFoundError(
+            "Missing input data. Expected DataCompleteLatest.xls under "
+            f"{PYTHON_DATA_DIR} or {LEGACY_TVAR_DIR}."
+        )
     time_index, mnemonics_full, values_full = load_input_data(data_path)
 
     first_year = 1960
@@ -623,8 +633,9 @@ def post_process(
 def main() -> None:
     RunEstimation = _env_bool("RSTAR_RUN_ESTIMATION", True)
     OutputName = os.getenv("RSTAR_OUTPUT_NAME", "OutputModel1")
-    output_mat = LEGACY_TVAR_DIR / f"{OutputName}.mat"
-    FigSubFolder = LEGACY_TVAR_DIR / "FiguresModel1"
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    output_mat = OUTPUT_ROOT / f"{OutputName}.mat"
+    FigSubFolder = OUTPUT_ROOT / "FiguresModel1"
     FigSubFolder.mkdir(parents=True, exist_ok=True)
 
     shared = prepare_data()
@@ -669,7 +680,7 @@ def main() -> None:
         )
         print("-------------------------")
 
-        chains_dir = LEGACY_TVAR_DIR / "chains_out"
+        chains_dir = OUTPUT_ROOT / "chains_out"
         chains_dir.mkdir(parents=True, exist_ok=True)
         chain_paths = [
             chains_dir / f"{OutputName}_chain{chain_id:02d}.mat"
