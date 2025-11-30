@@ -274,13 +274,13 @@ def plot_states_shaded(
     color: Optional[Tuple[float, float, float]] = None,
     transparency: float = 0.5,
 ) -> plt.Axes:
-    """Replicate PlotStatesShaded.m in Matplotlib."""
+    """Plot median line with optional shaded bands (disabled for cleaner look)."""
     if ax is None:
         fig, ax = plt.subplots()
     else:
         fig = ax.figure
 
-    base_color = color or (0.8, 0.8, 0.8)
+    base_color = color or (0.0, 0.35, 0.65)
     time_arr = np.asarray(time)
     if np.issubdtype(time_arr.dtype, np.datetime64):
         time_nums = mdates.date2num(pd.to_datetime(time_arr))
@@ -288,32 +288,23 @@ def plot_states_shaded(
         time_nums = time_arr.astype(float)
     q = np.asarray(quantiles)
 
-    ax.fill_between(
+    # Only plot median; leave band code here for possible future use.
+    ax.plot(
         time_nums,
-        q[:, 0],
-        q[:, 4],
-        color=np.multiply(base_color, 0.75),
-        alpha=transparency,
-        linewidth=0,
+        q[:, 2],
+        linestyle="-",
+        color=base_color,
+        linewidth=2.0,
+        label="Median",
     )
-    ax.fill_between(
-        time_nums,
-        q[:, 1],
-        q[:, 3],
-        color=np.multiply(base_color, 0.5),
-        alpha=transparency,
-        linewidth=0,
-    )
-    line_color = tuple(np.multiply(base_color, 0.65))
-    ax.plot(time_nums, q[:, 2], linestyle="--", color=line_color, linewidth=1.5)
-    ax.plot(time_nums, np.zeros_like(time_nums), color="k", linewidth=0.25)
+    ax.axhline(0.0, color="k", linewidth=0.3, linestyle="--")
 
     if np.issubdtype(time_arr.dtype, np.datetime64):
         ax.xaxis.set_major_locator(mdates.YearLocator(base=10))
         ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
         ax.figure.autofmt_xdate()
     ax.set_xlim(time_nums[0], time_nums[-1])
-    ax.grid(False)
+    ax.grid(False, axis="x")
     fig.set_facecolor("w")
     return ax
 

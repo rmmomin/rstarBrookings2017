@@ -503,10 +503,12 @@ def post_process(
     Pi_bar = CommonTrends[:, 0, :]
     R_bar = CommonTrends[:, 1, :]
     Ts_bar = CommonTrends[:, 2, :]
+    nominal_bar = Pi_bar + R_bar
 
     qPi_bar = compute_quantiles(Pi_bar[:, None, :], quant)[:, 0, :]
     qR_bar = compute_quantiles(R_bar[:, None, :], quant)[:, 0, :]
     qTs_bar = compute_quantiles(Ts_bar[:, None, :], quant)[:, 0, :]
+    qNominal = compute_quantiles(nominal_bar[:, None, :], quant)[:, 0, :]
 
     time_dt = pd.to_datetime(shared.time_datetimes)
     df = pd.DataFrame(
@@ -522,6 +524,11 @@ def post_process(
             "R_bar_p16": qR_bar[:, 1],
             "R_bar_p84": qR_bar[:, 3],
             "R_bar_p97_5": qR_bar[:, 4],
+            "NR_bar_med": qNominal[:, 2],
+            "NR_bar_p2_5": qNominal[:, 0],
+            "NR_bar_p16": qNominal[:, 1],
+            "NR_bar_p84": qNominal[:, 3],
+            "NR_bar_p97_5": qNominal[:, 4],
             "Ts_bar_med": qTs_bar[:, 2],
             "Ts_bar_p2_5": qTs_bar[:, 0],
             "Ts_bar_p16": qTs_bar[:, 1],
@@ -558,6 +565,11 @@ def post_process(
         ["Pi_bar_trend", "R_bar_trend", "Ts_bar_trend"],
         "CommonTrends_quantiles.csv",
     )
+    quantile_frame(
+        np.stack([qPi_bar, qR_bar, qNominal, qTs_bar], axis=1),
+        ["Pi_bar", "R_bar", "NR_bar", "Ts_bar"],
+        "KeySeries_quantiles.csv",
+    )
     quantile_frame(qTrends, shared.mnemonics, "ObservedTrends_quantiles.csv")
     quantile_frame(qTrendsReal, shared.mnemonics, "RealTrends_quantiles.csv")
     quantile_frame(qCycles, shared.mnemonics, "Cycles_quantiles.csv")
@@ -569,9 +581,14 @@ def post_process(
         title: str,
         overlays: Optional[List[Dict[str, object]]] = None,
         ylim: Optional[Tuple[float, float]] = None,
+        subtitle: Optional[str] = None,
+        ylabel: str = "Percent, annualized",
     ) -> plt.Figure:
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(10, 4))
         plot_states_shaded(time_dt, data, ax=ax)
+        median_series = data[:, 2]
+        last_value = median_series[-1]
+        last_date = time_dt[-1]
         if overlays:
             for overlay in overlays:
                 series = np.asarray(overlay["y"], dtype=float)
@@ -580,15 +597,47 @@ def post_process(
                 ax.plot(time_dt, series, style, **kwargs)
         if ylim:
             ax.set_ylim(*ylim)
-        ax.set_title(title)
+        ax.set_ylabel(ylabel)
+        ax.set_title(title, fontweight="bold", fontsize=14, loc="left")
+        if subtitle:
+            ax.set_title(subtitle, fontsize=11, loc="left", pad=24)
+        ax.set_xlabel("Year")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.yaxis.grid(True, linestyle=":", linewidth=0.5, color="0.8")
+        ax.annotate(
+            f"{last_value:.2f}",
+            xy=(last_date, last_value),
+            xytext=(8, 0),
+            textcoords="offset points",
+            fontsize=10,
+            fontweight="bold",
+            ha="left",
+            va="center",
+            bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"},
+        )
+        fig.text(
+            0.01,
+            0.01,
+            "Source: Del Negro et al. (2017), Brookings BPEA replication.",
+            fontsize=9,
+        )
         return fig
 
     figs = [
-        (fig_with_shaded(qPi_bar, r"$\pi^*$"), "PIbar.png"),
+        (
+            fig_with_shaded(
+                qPi_bar,
+                r"$\pi^*$",
+                subtitle="Trend inflation estimate with 68/95% confidence bands",
+            ),
+            "PIbar.png",
+        ),
         (
             fig_with_shaded(
                 qPi_bar,
                 r"$\pi^*$ and $\pi$",
+                subtitle="Observed inflation ($\pi$) versus expectations ($\pi^e$)",
                 overlays=[
                     {"y": y[:, 1], "style": "b-", "kwargs": {"linewidth": 2.0}},
                     {"y": y[:, 0], "style": "b:", "kwargs": {"linewidth": 1.0}},
@@ -596,11 +645,27 @@ def post_process(
             ),
             "PIbar_obs.png",
         ),
-        (fig_with_shaded(qR_bar, r"$r^*$"), "Rbar.png"),
+        (
+            fig_with_shaded(
+                qR_bar,
+                r"$r^*$",
+                subtitle="Natural rate implied by safety/liquidity convenience yields",
+            ),
+            "Rbar.png",
+        ),
+        (
+            fig_with_shaded(
+                qNominal,
+                r"$n^* = (1 + \pi^*)(1 + r^*) - 1$",
+                subtitle="Nominal neutral rate consistent with trend inflation and $r^*$",
+            ),
+            "NRbar.png",
+        ),
         (
             fig_with_shaded(
                 qR_bar,
                 r"$r^*, r - \pi^e, r^e - \pi^e$",
+                subtitle="Comparing natural rate to ex-ante and ex-post real rates",
                 overlays=[
                     {
                         "y": y[:, 3] - y[:, 1],
@@ -616,11 +681,19 @@ def post_process(
             ),
             "Rbar_obs.png",
         ),
-        (fig_with_shaded(qTs_bar, r"$T_s^*$"), "TSbar.png"),
+        (
+            fig_with_shaded(
+                qTs_bar,
+                r"$T_s^*$",
+                subtitle="Safety/liquidity component of the natural rate",
+            ),
+            "TSbar.png",
+        ),
         (
             fig_with_shaded(
                 qTs_bar,
                 r"$T_s^*, r^L - r$",
+                subtitle="Comparison to observed credit spread proxy ($r^L - r$)",
                 overlays=[
                     {
                         "y": y[:, 4] - y[:, 2],
@@ -635,6 +708,7 @@ def post_process(
             fig_with_shaded(
                 qR_bar,
                 r"$r^*$",
+                subtitle="Zoomed scale emphasizes post-2000 compression",
                 ylim=(-0.5, 3.5),
             ),
             "Rscaled.png",
@@ -643,6 +717,7 @@ def post_process(
             fig_with_shaded(
                 qTs_bar,
                 r"$T_s^*$",
+                subtitle="Zoomed scale emphasizes post-2000 compression",
                 ylim=(-0.5, 3.5),
             ),
             "TSscaled.png",
