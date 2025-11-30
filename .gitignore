@@ -1,7 +1,12 @@
-dsge/output_data/*/*/estimate/work
-dsge/output_data/*/*/estimate/tables
-dsge/output_data/*/*/forecast
-plot/Tables/Bloomberg_rstar_spreads.xlsx
-plot/Figures*
-tvar/MainModel1.m
+.DS_Store
+*.py[cod]
 *.mat
+__pycache__/
+.venv/
+env/
+venv/
+
+# Generated figures/output
+tvar/chains_out/
+tvar/Figures*/
+tvar/output_data/

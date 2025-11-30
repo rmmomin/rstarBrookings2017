@@ -11,10 +11,17 @@ Brookings figures and tables. The work-in-progress port mirrors the
 MATLAB estimation and plotting scripts so both ecosystems can run side
 by side during the transition.
 
+## Repository layout
+
+- `python/` – modernized Python package containing the TVAR port.
+- `tvar/` – original MATLAB scripts, routines, data inputs, and legacy outputs.
+- `requirements.txt` – runtime dependencies for the Python environment.
+
 ## Python environment
 
-The Python port currently lives under `tvar/python`. To reproduce the TVAR
-estimation without depending on the system Python packages:
+The Python port now lives under the top-level `python/` package so it can evolve
+independently of the MATLAB scripts. To reproduce the TVAR estimation without
+depending on the system Python packages:
 
 1. Create a virtual environment (Python 3.9+ recommended):
    ```
@@ -26,19 +33,23 @@ estimation without depending on the system Python packages:
    ```
    pip install -r requirements.txt
    ```
-3. Run the estimator from the repo root (optionally adjust `main_model1.py`
+3. Run the estimator from the repo root (optionally adjust `python/main_model1.py`
    controls before launching):
    ```
-   python -m tvar.python.main_model1
+   python -m python.main_model1
    ```
 
    You can override the heavy defaults without editing code by supplying
    environment variables, e.g.
    ```
-   RSTAR_NDRAWS=200 RSTAR_NCHAINS=1 RSTAR_THIN=2 python -m tvar.python.main_model1
+   RSTAR_NDRAWS=200 RSTAR_NCHAINS=1 RSTAR_THIN=2 python -m python.main_model1
    ```
    Supported toggles: `RSTAR_RUN_ESTIMATION`, `RSTAR_OUTPUT_NAME`,
    `RSTAR_NDRAWS`, `RSTAR_NCHAINS`, `RSTAR_THIN`, `RSTAR_NBENCH`.
+
+   The Python port still reads inputs from the legacy MATLAB directory
+   (`tvar/DataCompleteLatest.xls`) and drops its MAT/PDF/CSV outputs into
+   the same `tvar` subfolders so both toolchains stay in sync.
 
 The runtime expectations in `main_model1.py` still apply (100k draws × 8
 chains by default). Consider lowering `Ndraws` or toggling `RunEstimation`
