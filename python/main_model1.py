@@ -685,7 +685,7 @@ def post_process(
         (
             fig_with_shaded(
                 qTs_bar,
-                "Trend credit-spread / convenience-yield proxy used in natural-rate decomposition",
+                "Term premium estimated from Model 1 (baseline trendy VAR)",
                 subtitle=None,
             ),
             "TSbar.png",
@@ -693,7 +693,7 @@ def post_process(
         (
             fig_with_shaded(
                 qTs_bar,
-                r"Trend credit-spread / convenience-yield proxy vs. observed credit spread $(r^L - r)$",
+                r"Term premium vs observed difference $(r^L - r)$",
                 subtitle=None,
                 overlays=[
                     {
