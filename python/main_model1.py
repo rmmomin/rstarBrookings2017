@@ -629,16 +629,16 @@ def post_process(
         (
             fig_with_shaded(
                 qPi_bar,
-                r"$\pi^*$",
-                subtitle="Trend inflation estimate with 68/95% confidence bands",
+                "Trend inflation (pi_t trend) estimated from Model 1",
+                subtitle=None,
             ),
             "PIbar.png",
         ),
         (
             fig_with_shaded(
                 qPi_bar,
-                r"$\pi^*$ and $\pi$",
-                subtitle="Observed inflation ($\pi$) versus expectations ($\pi^e$)",
+                "Observed inflation (pi_t) vs. survey inflation expectations (pi_t^e)",
+                subtitle=None,
                 overlays=[
                     {"y": y[:, 1], "style": "b-", "kwargs": {"linewidth": 2.0}},
                     {"y": y[:, 0], "style": "b:", "kwargs": {"linewidth": 1.0}},
@@ -649,24 +649,24 @@ def post_process(
         (
             fig_with_shaded(
                 qR_bar,
-                r"$r^*$",
-                subtitle="Natural rate implied by safety/liquidity convenience yields",
+                "Natural real rate (r_t^*) estimated from Model 1 (baseline trendy VAR)",
+                subtitle=None,
             ),
             "Rbar.png",
         ),
         (
             fig_with_shaded(
                 qNominal,
-                r"$n^* = (1 + \pi^*)(1 + r^*) - 1$",
-                subtitle="Nominal neutral rate consistent with trend inflation and $r^*$",
+                "Nominal neutral short rate (i_t^* = r_t^* + pi_t trend) implied by Model 1",
+                subtitle=None,
             ),
             "NRbar.png",
         ),
         (
             fig_with_shaded(
                 qR_bar,
-                r"$r^*, r - \pi^e, r^e - \pi^e$",
-                subtitle="Comparing natural rate to ex-ante and ex-post real rates",
+                "Natural real rate (r_t^*) (Model 1) vs. ex-ante and ex-post real rates",
+                subtitle=None,
                 overlays=[
                     {
                         "y": y[:, 3] - y[:, 1],
@@ -685,16 +685,16 @@ def post_process(
         (
             fig_with_shaded(
                 qTs_bar,
-                r"$T_s^*$",
-                subtitle="Safety/liquidity component of the natural rate",
+                "Trend credit-spread / convenience-yield proxy used in natural-rate decomposition",
+                subtitle=None,
             ),
             "TSbar.png",
         ),
         (
             fig_with_shaded(
                 qTs_bar,
-                r"$T_s^*, r^L - r$",
-                subtitle="Comparison to observed credit spread proxy ($r^L - r$)",
+                "Trend credit-spread / convenience-yield proxy vs. observed credit spread (r^L - r)",
+                subtitle=None,
                 overlays=[
                     {
                         "y": y[:, 4] - y[:, 2],
@@ -708,8 +708,8 @@ def post_process(
         (
             fig_with_shaded(
                 qR_bar,
-                r"$r^*$",
-                subtitle="Zoomed scale emphasizes post-2000 compression",
+                "Trend natural real rate (r_t^*) (Model 1, zoomed scale)",
+                subtitle=None,
                 ylim=(-0.5, 3.5),
             ),
             "Rscaled.png",
@@ -717,8 +717,8 @@ def post_process(
         (
             fig_with_shaded(
                 qTs_bar,
-                r"$T_s^*$",
-                subtitle="Zoomed scale emphasizes post-2000 compression",
+                "Trend credit-spread / convenience-yield proxy (zoomed scale)",
+                subtitle=None,
                 ylim=(-0.5, 3.5),
             ),
             "TSscaled.png",
