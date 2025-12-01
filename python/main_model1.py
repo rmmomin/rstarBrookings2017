@@ -629,7 +629,7 @@ def post_process(
         (
             fig_with_shaded(
                 qPi_bar,
-                "Trend inflation (pi_t trend) estimated from Model 1",
+                r"Trend inflation $(\pi_t^{\mathrm{trend}})$ estimated from Model 1",
                 subtitle=None,
             ),
             "PIbar.png",
@@ -637,7 +637,7 @@ def post_process(
         (
             fig_with_shaded(
                 qPi_bar,
-                "Observed inflation (pi_t) vs. survey inflation expectations (pi_t^e)",
+                r"Observed inflation $(\pi_t)$ vs. survey inflation expectations $(\pi_t^e)$",
                 subtitle=None,
                 overlays=[
                     {"y": y[:, 1], "style": "b-", "kwargs": {"linewidth": 2.0}},
@@ -649,7 +649,7 @@ def post_process(
         (
             fig_with_shaded(
                 qR_bar,
-                "Natural real rate (r_t^*) estimated from Model 1 (baseline trendy VAR)",
+                r"Natural real rate $(r_t^*)$ estimated from Model 1 (baseline trendy VAR)",
                 subtitle=None,
             ),
             "Rbar.png",
@@ -657,7 +657,7 @@ def post_process(
         (
             fig_with_shaded(
                 qNominal,
-                "Nominal neutral short rate (i_t^* = r_t^* + pi_t trend) implied by Model 1",
+                r"Nominal neutral short rate $(i_t^* = r_t^* + \pi_t^{\mathrm{trend}})$ implied by Model 1",
                 subtitle=None,
             ),
             "NRbar.png",
@@ -665,7 +665,7 @@ def post_process(
         (
             fig_with_shaded(
                 qR_bar,
-                "Natural real rate (r_t^*) (Model 1) vs. ex-ante and ex-post real rates",
+                r"Natural real rate $(r_t^*)$ (Model 1) vs. ex-ante and ex-post real rates",
                 subtitle=None,
                 overlays=[
                     {
@@ -693,7 +693,7 @@ def post_process(
         (
             fig_with_shaded(
                 qTs_bar,
-                "Trend credit-spread / convenience-yield proxy vs. observed credit spread (r^L - r)",
+                r"Trend credit-spread / convenience-yield proxy vs. observed credit spread $(r^L - r)$",
                 subtitle=None,
                 overlays=[
                     {
@@ -708,7 +708,7 @@ def post_process(
         (
             fig_with_shaded(
                 qR_bar,
-                "Trend natural real rate (r_t^*) (Model 1, zoomed scale)",
+                r"Trend natural real rate $(r_t^*)$ (Model 1, zoomed scale)",
                 subtitle=None,
                 ylim=(-0.5, 3.5),
             ),
