@@ -78,9 +78,13 @@ def plot_with_bands(
 
     q = quantiles
     # Shaded 95 and 68 percent intervals
-    ax.fill_between(t, q[:, 0], q[:, 4], color="0.8", alpha=0.6, linewidth=0)
-    ax.fill_between(t, q[:, 1], q[:, 3], color="0.6", alpha=0.4, linewidth=0)
-    ax.plot(t, q[:, 2], color="tab:blue", linewidth=1.8, label="Median")
+    band95 = ax.fill_between(
+        t, q[:, 0], q[:, 4], color="0.8", alpha=0.6, linewidth=0, label="95% interval"
+    )
+    band68 = ax.fill_between(
+        t, q[:, 1], q[:, 3], color="0.6", alpha=0.4, linewidth=0, label="68% interval"
+    )
+    median_line, = ax.plot(t, q[:, 2], color="tab:blue", linewidth=1.8, label="Median")
 
     if overlays:
         for ov in overlays:
@@ -109,6 +113,8 @@ def plot_with_bands(
         va="bottom",
         bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "0.7"},
     )
+    ax.legend(loc="upper left", frameon=False)
+
     fig.text(
         0.07,
         0.01,
