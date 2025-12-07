@@ -46,6 +46,17 @@ def load_outmod(csv_path: Path, adjust_day: bool = False) -> dict:
         "R_q": np.column_stack(
             [col("R_bar_p2_5"), col("R_bar_p16"), col("R_bar_med"), col("R_bar_p84"), col("R_bar_p97_5")]
         ),
+        # Nominal neutral constructed as pi + r (matching current Python definition)
+        "NR": col("Pi_bar_med") + col("R_bar_med"),
+        "NR_q": np.column_stack(
+            [
+                col("Pi_bar_p2_5") + col("R_bar_p2_5"),
+                col("Pi_bar_p16") + col("R_bar_p16"),
+                col("Pi_bar_med") + col("R_bar_med"),
+                col("Pi_bar_p84") + col("R_bar_p84"),
+                col("Pi_bar_p97_5") + col("R_bar_p97_5"),
+            ]
+        ),
         "Ts": col("Ts_bar_med"),
         "Ts_q": np.column_stack(
             [col("Ts_bar_p2_5"), col("Ts_bar_p16"), col("Ts_bar_med"), col("Ts_bar_p84"), col("Ts_bar_p97_5")]
@@ -114,6 +125,7 @@ def make_banded_figures(df: dict, out_dir: Path, label_prefix: str) -> None:
 
     q_pi = df["Pi_q"]
     q_r = df["R_q"]
+    q_nr = df["NR_q"]
     q_ts = df["Ts_q"]
 
     figs = [
@@ -128,6 +140,13 @@ def make_banded_figures(df: dict, out_dir: Path, label_prefix: str) -> None:
             q_r,
             r"Natural real rate $(r_t^*)$ estimated from Model 1",
             "Rbar_bands.png",
+            None,
+            None,
+        ),
+        (
+            q_nr,
+            r"Nominal neutral short rate $(i_t^* = r_t^* + \pi_t^{\mathrm{trend}})$",
+            "NRbar_bands.png",
             None,
             None,
         ),
